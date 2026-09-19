@@ -52,10 +52,17 @@
             <button class="btn btn-gold" onclick="activarUsuario()">✅ Enviar Activación por 30 Días</button>
         </div>
 
-        <div class="header" style="margin-top: 30px;"><h2 style="color: #fff;">Suscripciones en Vivo</h2></div>
-        <div id="lista-usuarios"></div>
-    </div>
+      <!-- PANEL DE FINANZAS GLOBALES -->
+        <div class="header" style="margin-top: 30px;"><h2 style="color: #fff;">Control de Ingresos</h2></div>
+        <div class="stats">
+            <div class="stat-box"><div style="font-size: 10px;">TOTAL (USD)</div><div class="stat-val" style="color: var(--gold);" id="ingreso-usd">$0.00</div></div>
+            <div class="stat-box"><div style="font-size: 10px;">TOTAL (Bs)</div><div class="stat-val" style="color: var(--neon);" id="ingreso-bs">Bs 0.00</div></div>
+        </div>
+        <button class="btn btn-blue" style="border-color: var(--danger); color: var(--danger); font-size: 14px; padding: 12px; margin-bottom: 30px;" onclick="reiniciarFinanzas()">🗑️ Reiniciar Ingresos a Cero</button>
 
+        <div class="header"><h2 style="color: #fff;">Suscripciones en Vivo</h2></div>
+        <div id="lista-usuarios"></div>
+    </div>-
     <script>
         // CONFIGURACIÓN DE FIREBASE (IGUAL A LA DE INDEX.HTML)
        const firebaseConfig = {
@@ -66,10 +73,21 @@
   messagingSenderId: "204151253315",
   appId: "1:204151253315:web:4ea3a4df4ccf4771aea7f6"
 };
-        firebase.initializeApp(firebaseConfig);
+       firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        // Escuchar la base de datos en tiempo real
+        // 1. Escuchar los Ingresos Financieros en la nube
+        db.collection("sistema").doc("finanzas").onSnapshot((doc) => {
+            if(doc.exists) {
+                document.getElementById('ingreso-usd').innerText = `$${(doc.data().usd || 0).toFixed(2)}`;
+                document.getElementById('ingreso-bs').innerText = `Bs ${(doc.data().bs || 0).toFixed(2)}`;
+            } else {
+                document.getElementById('ingreso-usd').innerText = `$0.00`;
+                document.getElementById('ingreso-bs').innerText = `Bs 0.00`;
+            }
+        });
+
+        // 2. Escuchar la base de datos de usuarios en tiempo real
         db.collection("usuarios").onSnapshot((snapshot) => {
             document.getElementById('conexion-txt').innerHTML = "🟢 Sincronizado en Tiempo Real";
             let activos = 0; let vencidos = 0;
@@ -105,11 +123,17 @@
             document.getElementById('st-vencidos').innerText = vencidos;
         });
 
-        function activarUsuario() {
+     function activarUsuario() {
             let appId = document.getElementById('n-id').value.trim();
             let nombre = document.getElementById('n-nombre').value.trim();
             let tlf = document.getElementById('n-tlf').value.trim();
             if(!appId || !nombre) return alert("ID y Nombre son obligatorios");
+
+            // Preguntar tasa de cambio para calcular los bolívares exactos
+            let tasaStr = prompt("El plan cuesta $5.\nIngresa la Tasa BCV del pago para registrar tu ingreso en Bolívares (Ej: 36.50):");
+            if (tasaStr === null) return; // Si cancelas, aborta la activación
+            let tasa = parseFloat(tasaStr.replace(',', '.')) || 0;
+            let bsCobrados = 5 * tasa;
 
             let vencimiento = Date.now() + (30 * 24 * 60 * 60 * 1000);
 
@@ -120,23 +144,47 @@
                 activacion: Date.now(),
                 vencimiento: vencimiento
             }).then(() => {
-                alert(`¡Usuario activado!\nEl teléfono de ${nombre} se ha desbloqueado automáticamente.`);
+                // Registrar el dinero directamente en tu caja virtual
+                db.collection("sistema").doc("finanzas").set({
+                    usd: firebase.firestore.FieldValue.increment(5),
+                    bs: firebase.firestore.FieldValue.increment(bsCobrados)
+                }, { merge: true });
+
+                alert(`¡Activación Exitosa!\nIngreso registrado: $5 y Bs ${bsCobrados.toFixed(2)}.\nEl teléfono de ${nombre} se desbloqueará en 1 segundo.`);
                 document.getElementById('n-id').value = '';
                 document.getElementById('n-nombre').value = '';
+                document.getElementById('n-tlf').value = '';
             });
         }
+function renovarUsuario(appId) {
+            let tasaStr = prompt("Renovación mensual de $5.\nIngresa la Tasa BCV del pago de hoy para actualizar tus ingresos (Ej: 37.10):");
+            if (tasaStr === null) return; 
+            let tasa = parseFloat(tasaStr.replace(',', '.')) || 0;
+            let bsCobrados = 5 * tasa;
 
-        function renovarUsuario(appId) {
-            if(confirm("¿Renovar este usuario por 30 días más?")) {
-                db.collection("usuarios").doc(appId).update({
-                    vencimiento: Date.now() + (30 * 24 * 60 * 60 * 1000)
-                });
-            }
+            db.collection("usuarios").doc(appId).update({
+                vencimiento: Date.now() + (30 * 24 * 60 * 60 * 1000)
+            }).then(() => {
+                // Registrar el ingreso de la renovación
+                db.collection("sistema").doc("finanzas").set({
+                    usd: firebase.firestore.FieldValue.increment(5),
+                    bs: firebase.firestore.FieldValue.increment(bsCobrados)
+                }, { merge: true });
+                alert(`¡Renovación completada y dinero sumado a tu caja!`);
+            });
         }
 
         function eliminarUsuario(appId) {
             if(confirm("¿Seguro que deseas borrar este usuario?\n\nSu aplicación cliente se bloqueará INMEDIATAMENTE y perderá el acceso a las funciones premium.")) {
                 db.collection("usuarios").doc(appId).delete();
+            }
+        }
+
+        // LÓGICA DE REINICIO DE CAJA (VACIAR FINANZAS)
+        function reiniciarFinanzas() {
+            if(confirm("⚠️ ATENCIÓN PELIGRO: ¿Estás totalmente seguro de que quieres BORRAR TODOS tus ingresos registrados?\n\nEsto pondrá los contadores de Dólares y Bolívares a CERO y no se puede deshacer.")) {
+                db.collection("sistema").doc("finanzas").set({ usd: 0, bs: 0 });
+                alert("✅ Finanzas reiniciadas a cero exitosamente.");
             }
         }
     </script>
