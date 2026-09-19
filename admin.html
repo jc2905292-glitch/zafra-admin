@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>ZAFRA Admin Nube</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <style>
+        :root { --bg: #0a0e17; --card: #151a25; --neon: #00e5ff; --gold: #ffd700; --danger: #ff4757; --success: #2ed573; --text: #fff; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #05070a; color: var(--text); margin: 0; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
+        .app-mobile-view { background: var(--bg); width: 100%; max-width: 400px; min-height: 100vh; padding: 20px; padding-top: 40px; box-sizing: border-box; box-shadow: 0 0 25px rgba(0, 229, 255, 0.15); overflow-y: auto; }
+        .header { text-align: center; margin-bottom: 25px; border-bottom: 2px solid var(--neon); padding-bottom: 15px; }
+        .card { background: var(--card); padding: 20px; border-radius: 15px; border: 1px solid rgba(0, 229, 255, 0.2); margin-bottom: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        .input-group { margin-bottom: 15px; text-align: left; }
+        .input-group label { display: block; font-size: 12px; color: #8b9bb4; margin-bottom: 5px; font-weight: bold; }
+        input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #2a3441; background: var(--bg); color: var(--text); font-size: 16px; box-sizing: border-box; outline: none; }
+        input:focus { border-color: var(--neon); }
+        .btn { width: 100%; padding: 15px; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 10px; }
+        .btn-gold { background: linear-gradient(45deg, #d4b200, var(--gold)); color: #000; }
+        .btn-blue { background: transparent; border: 1px solid var(--neon); color: var(--neon); }
+        .stats { display: flex; gap: 10px; margin-bottom: 20px; }
+        .stat-box { flex: 1; background: var(--card); padding: 15px; border-radius: 10px; text-align: center; border: 1px solid #2a3441; }
+        .stat-val { font-size: 24px; font-weight: bold; margin-top: 5px; }
+        .user-item { background: #1f2736; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid var(--success); position: relative; }
+        .user-item.expired { border-left-color: var(--danger); opacity: 0.8; }
+        .badge { position: absolute; top: 15px; right: 15px; font-size: 11px; padding: 4px 8px; border-radius: 10px; font-weight: bold; }
+        .bg-green { background: rgba(46, 213, 115, 0.2); color: var(--success); border: 1px solid var(--success); }
+        .bg-red { background: rgba(255, 71, 87, 0.2); color: var(--danger); border: 1px solid var(--danger); }
+        .action-row { display: flex; gap: 10px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="app-mobile-view">
+        <div class="header">
+            <h1 style="color: var(--neon);">ZAFRA CLOUD</h1>
+            <div style="font-size: 12px; color: #8b9bb4;" id="conexion-txt">🟡 Conectando a Base de Datos...</div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box"><div style="font-size: 10px;">ACTIVOS</div><div class="stat-val" style="color: var(--success);" id="st-activos">0</div></div>
+            <div class="stat-box"><div style="font-size: 10px;">VENCIDOS</div><div class="stat-val" style="color: var(--danger);" id="st-vencidos">0</div></div>
+        </div>
+
+        <div class="card">
+            <h2 style="color: var(--gold); border-bottom: 1px solid #2a3441; padding-bottom: 10px;">Activar Suscripción</h2>
+            <div class="input-group"><label>ID de la App del Cliente</label><input type="number" id="n-id" placeholder="Ej: 4512"></div>
+            <div class="input-group"><label>Nombre del Productor</label><input type="text" id="n-nombre" placeholder="Ej: Pedro Pérez"></div>
+            <div class="input-group"><label>Teléfono (WhatsApp)</label><input type="tel" id="n-tlf" placeholder="Ej: 04141234567"></div>
+            <button class="btn btn-gold" onclick="activarUsuario()">✅ Enviar Activación por 30 Días</button>
+        </div>
+
+        <div class="header" style="margin-top: 30px;"><h2 style="color: #fff;">Suscripciones en Vivo</h2></div>
+        <div id="lista-usuarios"></div>
+    </div>
+
+    <script>
+        // CONFIGURACIÓN DE FIREBASE (IGUAL A LA DE INDEX.HTML)
+       const firebaseConfig = {
+  apiKey: "AIzaSyAcwJpLwLhF2mo1ucwPfM1-sAGoJqjfFTs",
+  authDomain: "zafra-f0586.firebaseapp.com",
+  projectId: "zafra-f0586",
+  storageBucket: "zafra-f0586.firebasestorage.app",
+  messagingSenderId: "204151253315",
+  appId: "1:204151253315:web:4ea3a4df4ccf4771aea7f6"
+};
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // Escuchar la base de datos en tiempo real
+        db.collection("usuarios").onSnapshot((snapshot) => {
+            document.getElementById('conexion-txt').innerHTML = "🟢 Sincronizado en Tiempo Real";
+            let activos = 0; let vencidos = 0;
+            const contenedor = document.getElementById('lista-usuarios');
+            contenedor.innerHTML = '';
+            
+            let usuarios = [];
+            snapshot.forEach(doc => usuarios.push({ id_fb: doc.id, ...doc.data() }));
+            usuarios.sort((a, b) => b.vencimiento - a.vencimiento);
+
+            usuarios.forEach(u => {
+                let ahora = Date.now();
+                let estaVencido = ahora > u.vencimiento;
+                if(estaVencido) vencidos++; else activos++;
+                let diasRestantes = Math.max(0, Math.ceil((u.vencimiento - ahora) / (1000 * 60 * 60 * 24)));
+                let cls = estaVencido ? 'user-item expired' : 'user-item';
+
+                contenedor.innerHTML += `
+                    <div class="${cls}">
+                        ${estaVencido ? '<span class="badge bg-red">VENCIDO</span>' : `<span class="badge bg-green">ACTIVO (${diasRestantes} Días)</span>`}
+                        <div style="font-size: 18px; font-weight: bold; color: var(--gold);">${u.nombre}</div>
+                        <div style="font-size: 13px; color: #8b9bb4; margin: 5px 0;">📱 ${u.telefono} | 🔑 ID: <b>${u.id_fb}</b></div>
+                        <div style="font-size: 13px; color: #8b9bb4;">Vence: <b style="color: ${estaVencido ? 'var(--danger)' : '#fff'}">${new Date(u.vencimiento).toLocaleDateString()}</b></div>
+                        
+                        <div class="action-row">
+                            ${estaVencido ? `<button class="btn btn-blue" style="font-size:12px; padding: 10px;" onclick="renovarUsuario('${u.id_fb}')">🔄 Renovar</button>` : ''}
+                            <button class="btn btn-blue" style="font-size:12px; padding: 10px; border-color: var(--danger); color: var(--danger);" onclick="eliminarUsuario('${u.id_fb}')">🚫 Bloquear App</button>
+                        </div>
+                    </div>
+                `;
+            });
+            document.getElementById('st-activos').innerText = activos;
+            document.getElementById('st-vencidos').innerText = vencidos;
+        });
+
+        function activarUsuario() {
+            let appId = document.getElementById('n-id').value.trim();
+            let nombre = document.getElementById('n-nombre').value.trim();
+            let tlf = document.getElementById('n-tlf').value.trim();
+            if(!appId || !nombre) return alert("ID y Nombre son obligatorios");
+
+            let vencimiento = Date.now() + (30 * 24 * 60 * 60 * 1000);
+
+            // Crea o sobreescribe el documento del usuario en la nube
+            db.collection("usuarios").doc(appId).set({
+                nombre: nombre,
+                telefono: tlf,
+                activacion: Date.now(),
+                vencimiento: vencimiento
+            }).then(() => {
+                alert(`¡Usuario activado!\nEl teléfono de ${nombre} se ha desbloqueado automáticamente.`);
+                document.getElementById('n-id').value = '';
+                document.getElementById('n-nombre').value = '';
+            });
+        }
+
+        function renovarUsuario(appId) {
+            if(confirm("¿Renovar este usuario por 30 días más?")) {
+                db.collection("usuarios").doc(appId).update({
+                    vencimiento: Date.now() + (30 * 24 * 60 * 60 * 1000)
+                });
+            }
+        }
+
+        function eliminarUsuario(appId) {
+            if(confirm("¿Seguro que deseas borrar este usuario?\n\nSu aplicación cliente se bloqueará INMEDIATAMENTE y perderá el acceso a las funciones premium.")) {
+                db.collection("usuarios").doc(appId).delete();
+            }
+        }
+    </script>
+</body>
+</html>
